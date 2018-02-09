@@ -1,10 +1,26 @@
 classdef Coupled_Nonlinear_Optical_Waves < handle
+    % This is the interface to the Coupled Nonlinear Optical Waves (CNOW)
+    % solver.
+    %   
+    %   The nonlinear coupled mode equations (as a function of position, z)
+    %   are solved with user-specified initial conditions (wave amplitudes).
+    %   The numerical implementationn is Newton's method with a
+    %   Crank-Nicholson finite differencing scheme.
+    %   
+    %   See https://github.com/ianwilliamson/cnow for the most up-to-date
+    %   version of this package and test cases.
+    %   
+    %   See https://arxiv.org/abs/1711.02060 for an example of results
+    %   obtained with this package.
+    
+    
     properties (Access = public)
-        A;
-        z;
-        convergence_condition = 1e-3;
-        max_iterations = 100;
-        tol_freq_matching = 1e-3
+        A; % The solution vector
+        z; % Position vector
+        convg = 1e-3; % Convergence condition
+        max_its = 100; % Maximum number of iterations before dying
+        tol_freq = 1e-3; % Tolerance for frequency matching condition (to avoid roundoff)
+        its; % Number of iterations for each position
     end
     properties (Access = private)
         k;
@@ -25,16 +41,17 @@ classdef Coupled_Nonlinear_Optical_Waves < handle
             obj.A(:,1) = A0;
             
             if obj.N ~= length(obj.omega)
-                obj.error('Mismatch between number of initial wave amplitudes and number of frequencies');
+                error('Mismatch between number of initial wave amplitudes and number of frequencies');
             end
             
             if ~isa(obj.k,'function_handle')
-                obj.error('k is not a function handle');
+                error('k is not a function handle');
             end
             
+            % Pre-compute the coupling delta functions
             obj.delta_p = zeros(length(obj.omega),length(obj.omega),length(obj.omega));
             obj.delta_m = zeros(length(obj.omega),length(obj.omega),length(obj.omega));
-            tol = min(gradient(omega))*obj.tol_freq_matching;
+            tol = min(gradient(omega))*obj.tol_freq;
             for p = 1:length(obj.omega)
                 for m = 1:length(obj.omega)
                     for n = 1:length(obj.omega)
@@ -48,18 +65,21 @@ classdef Coupled_Nonlinear_Optical_Waves < handle
         end
         
         function solve(obj)
-            obj.A(:,2:end)=nan;
+            % Perform the solve. This can be called immediately after the
+            % constructor.
             
-            multiWaitbar('Solve','Close');
-            multiWaitbar('Solve',0,'Color','g');
+            obj.A(:,2:end)=nan;
+            obj.its = zeros(1,length(obj.z));
+            
+            progress_bar('Solving: ')
             for i = 1:length(obj.z)-1
                 A1       = obj.A(:,i);
                 A_approx = A1;
                 
                 converge = 1;
                 counter = 0;
-                while converge > obj.convergence_condition
-                    if counter > obj.max_iterations
+                while converge > obj.convg
+                    if counter > obj.max_its
                         obj.error('Maximum number of iterations reached');
                     end
                     F = obj.eval_F(i+1,A_approx,A1);
@@ -69,10 +89,11 @@ classdef Coupled_Nonlinear_Optical_Waves < handle
                     converge = norm(dA);
                     counter=counter+1;
                 end
+                obj.its(i)=counter;
                 obj.A(:,i+1) = A_approx;
-                multiWaitbar('Solve',(i+1)/length(obj.z));
+                progress_bar(100*(i+1)/length(obj.z));
             end
-            multiWaitbar('Solve','Close');
+            progress_bar(' done!')
         end
     end
     
@@ -149,7 +170,7 @@ classdef Coupled_Nonlinear_Optical_Waves < handle
         end
         
         function error(obj,str)
-            multiWaitbar('CloseAll');
+            progress_bar(' error!');
             error(str);
         end
     end
